@@ -1,0 +1,123 @@
+// Ramón
+
+/*
+make p3_gasolinera1_mpi_exe; mpirun -oversubscribe -np 11 p3_gasolinera1_mpi_exe
+*/
+
+#include <mpi.h>
+#include <thread> // this_thread::sleep_for
+#include <random> // dispositivos, generadores y distribuciones aleatorias
+#include <chrono> // duraciones (duration), unidades de tiempo
+#include <iostream>
+
+using namespace std;
+using namespace std::this_thread ;
+using namespace std::chrono ;
+
+const int
+   num_surtidores = 5,
+   num_coches = 10,
+   num_procesos = num_coches + 1,
+   id_gasolinera = num_coches,
+   etiq_entrar = 0,
+   etiq_salir = 1;
+
+
+//-------------------------------------------------------------------------------
+
+template< int min, int max > int aleatorio()
+{
+  static default_random_engine generador( (random_device())() );
+  static uniform_int_distribution<int> distribucion_uniforme( min, max ) ;
+  return distribucion_uniforme( generador );
+}
+
+//-------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------
+
+void repostar(int num_coche){
+    milliseconds duration(aleatorio<20,100>());
+
+    cout << "Coche " << num_coche << " empieza a repostar" << endl;
+
+    this_thread::sleep_for(duration);
+
+    cout << "Coche " << num_coche << " termina de repostar" << endl;
+}
+//-------------------------------------------------------------------------------
+void esperar(int num_coche){
+    milliseconds duration(aleatorio<20,100>());
+
+    cout << "Coche " << num_coche << " espera fuera" << endl;
+
+    this_thread::sleep_for(duration);
+
+    cout << "Coche " << num_coche << " termina de esperar" << endl;
+}
+
+//-------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------
+
+void funcion_coche(int id){
+   int valor;
+
+   while(true){
+      cout << "Coche "<<id<<" quiere entrar a respostar"<<endl;
+      MPI_Ssend(&valor, 1, MPI_INT, id_gasolinera, etiq_entrar, MPI_COMM_WORLD);
+      
+      repostar(id);
+      
+      MPI_Ssend(&valor, 1, MPI_INT, id_gasolinera, etiq_salir, MPI_COMM_WORLD);
+
+      esperar(id);
+   }
+}
+//-------------------------------------------------------------------------------
+void funcion_gasolinera(){
+   int valor, tag_aceptable,
+       num_surtidores_libres = num_surtidores;
+   MPI_Status estado;
+
+   while(true){
+      if (num_surtidores_libres > 0)   tag_aceptable = MPI_ANY_TAG;
+      else                             tag_aceptable = etiq_salir;
+
+      MPI_Recv(&valor, 1, MPI_INT, MPI_ANY_SOURCE, tag_aceptable, MPI_COMM_WORLD, &estado);
+
+      if(estado.MPI_TAG == etiq_salir) num_surtidores_libres++;
+      else                             num_surtidores_libres--;
+   }
+}
+
+//-------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------
+
+int main( int argc, char** argv )
+{
+   int id_propio, num_procesos_actual;
+
+   MPI_Init( &argc, &argv );
+   MPI_Comm_rank( MPI_COMM_WORLD, &id_propio );
+   MPI_Comm_size( MPI_COMM_WORLD, &num_procesos_actual );
+
+   if ( num_procesos == num_procesos_actual ) {
+      // ejecutar la función correspondiente a 'id_propio'
+      if (id_propio == id_gasolinera)
+         funcion_gasolinera();
+      else
+         funcion_coche( id_propio );
+   }
+   else {
+      if ( id_propio == 0 ) // solo el primero escribe error, indep. del rol
+      { cout << "el número de procesos esperados es:    " << num_procesos << endl
+             << "el número de procesos en ejecución es: " << num_procesos_actual << endl
+             << "(programa abortado)" << endl ;
+      }
+   }
+
+   MPI_Finalize( );
+   return 0;
+}
